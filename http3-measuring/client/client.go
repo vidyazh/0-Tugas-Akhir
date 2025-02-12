@@ -6,11 +6,32 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
-    "github.com/quic-go/quic-go"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 )
+
+var (
+    requestDuration = prometheus.NewHistogramVec(
+        prometheus.HistogramOpts{
+            Name:    "client_request_duration_seconds",
+            Help:    "Histogram of client request durations.",
+            Buckets: prometheus.DefBuckets,
+        },
+        []string{"request_id"},
+    )
+)
+
+func init() {
+    prometheus.MustRegister(requestDuration)
+}
+
+func recordClientMetrics(duration time.Duration, requestID int) {
+    requestDuration.WithLabelValues(fmt.Sprintf("%d", requestID)).Observe(duration.Seconds())
+}
 
 func measureRequestResponse(client *http.Client, reqID int, latencies *[]time.Duration) {
 	fmt.Printf("Starting request %d\n", reqID)
@@ -30,6 +51,8 @@ func measureRequestResponse(client *http.Client, reqID int, latencies *[]time.Du
 	*latencies = append(*latencies, latency)
 	fmt.Printf("Request %d latency: %v\n", reqID, latency)
 
+	recordClientMetrics(latency, reqID)
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Printf("Error reading response %d: %v", reqID, err)
@@ -40,7 +63,7 @@ func measureRequestResponse(client *http.Client, reqID int, latencies *[]time.Du
 }
 
 func measureThroughput(client *http.Client, reqID int, totalBytes *int64, totalTime *time.Duration) {
-	fmt.Printf("Starting request %d\n", reqID)
+	fmt.Printf("Starting throughput measurement for request %d\n", reqID)
 
 	startTime := time.Now()
 
@@ -94,17 +117,29 @@ func main() {
 	totalTime := time.Duration(0)
 	latencies := []time.Duration{}
 
-	// memuat requests secara concurrent
+	var wg sync.WaitGroup
 	for i := 0; i < numRequests; i++ {
-		// ukur latensi
-		go measureRequestResponse(client, i, &latencies)
-
-		// ukur throughput
-		go measureThroughput(client, i, &totalBytes, &totalTime)
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			measureRequestResponse(client, i, &latencies)
+			measureThroughput(client, i, &totalBytes, &totalTime)
+		}(i)
 	}
 
-	// tunggu semua request selesai
-	time.Sleep(5 * time.Second)
+	wg.Wait()
+
+	// // memuat requests secara concurrent
+	// for i := 0; i < numRequests; i++ {
+	// 	// ukur latensi
+	// 	go measureRequestResponse(client, i, &latencies)
+
+	// 	// ukur throughput
+	// 	go measureThroughput(client, i, &totalBytes, &totalTime)
+	// }
+
+	// // tunggu semua request selesai
+	// time.Sleep(5 * time.Second)
 
 	// menghitung rata-rata latensi
 	var totalLatency time.Duration
