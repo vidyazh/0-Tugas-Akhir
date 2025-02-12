@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package perf;
+
+option go_package = "./perf";
+
+service PerfTestService {
+  // Simple latency test
+  rpc PingPong(PingRequest) returns (PongResponse) {}
+  
+  // Throughput testing
+  rpc StreamingDownload(DownloadRequest) returns (stream DownloadResponse) {}
+  rpc StreamingUpload(stream UploadRequest) returns (UploadSummary) {}
+  
+  // Bidirectional streaming test
+  rpc BidirectionalStream(stream StreamRequest) returns (stream StreamResponse) {}
+}
+
+message PingRequest {
+  string message = 1;
+  int64 client_timestamp = 2;
+}
+
+message PongResponse {
+  string echo = 1;
+  int64 timestamp = 2;
+}
+
+message DownloadRequest {
+  int32 payload_size_bytes = 1;
+  int32 num_messages = 2;
+}
+
+message DownloadResponse {
+  int64 sequence_number = 1;
+  bytes payload = 2;
+  int64 timestamp = 3;
+}
+
+message UploadRequest {
+  int64 sequence_number = 1;
+  bytes payload = 2;
+  int64 client_timestamp = 3;
+}
+
+message UploadSummary {
+  int64 total_bytes_received = 1;
+  int64 duration_ms = 2;
+  double throughput = 3; // bytes per second
+}
+
+message StreamRequest {
+  int64 sequence_number = 1;
+  bytes payload = 2;
+  int64 client_timestamp = 3;
+}
+
+message StreamResponse {
+  int64 sequence_number = 1;
+  bytes payload = 2;
+  int64 timestamp = 3;
+}
