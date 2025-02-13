@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log"
-	// "net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,10 +19,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func recordMetrics(duration time.Duration, method string, statusCode string) {
+func recordMetrics(duration time.Duration, method string, statusCode string, path string, responseSizeBytes int) {
 	go func() {
 		for {
-			requestLatency.WithLabelValues(method, statusCode).Observe(duration.Seconds())
+			requestDuration.WithLabelValues(path, method, statusCode).Observe(duration.Seconds())
+			requestsTotal.WithLabelValues(path, method, statusCode).Inc()
+            responseSize.WithLabelValues(path, method, statusCode).Observe(float64(responseSizeBytes))
+
 			time.Sleep(2 * time.Second)
 		}
 	}()
@@ -31,18 +33,37 @@ func recordMetrics(duration time.Duration, method string, statusCode string) {
 }
 
 var (
-    requestLatency = prometheus.NewHistogramVec(
+    requestDuration = prometheus.NewHistogramVec(
         prometheus.HistogramOpts{
-            Name:    "http_request_duration_seconds",
-            Help:    "Histogram of HTTP request durations.",
+            Name:    "http3_request_duration_seconds",
+            Help:    "Histogram of request latencies",
             Buckets: prometheus.DefBuckets,
         },
-        []string{"method", "status_code"},
+        []string{"path", "method", "status_code"},
+    )
+
+    requestsTotal = prometheus.NewCounterVec(
+        prometheus.CounterOpts{
+            Name: "http3_requests_total",
+            Help: "Total number of HTTP requests made",
+        },
+        []string{"path", "method", "status_code"},
+    )
+
+    responseSize = prometheus.NewHistogramVec(
+        prometheus.HistogramOpts{
+            Name:    "http3_response_size_bytes",
+            Help:    "Size of HTTP responses in bytes",
+            Buckets: prometheus.ExponentialBuckets(100, 10, 8),
+        },
+        []string{"path", "method", "status_code"},
     )
 )
 
 func init() {
-    prometheus.MustRegister(requestLatency)
+    prometheus.MustRegister(requestDuration)
+	prometheus.MustRegister(requestsTotal)
+	prometheus.MustRegister(responseSize)
 }
 
 
@@ -85,7 +106,9 @@ func main() {
 
 		duration := time.Since(start)
     	statusCode := fmt.Sprintf("%d", http.StatusOK) 
-    	recordMetrics(duration, r.Method, statusCode)
+		body := "Hello from HTTP/3 server!"
+		responseSizeBytes := len(body)
+    	recordMetrics(duration, r.Method, statusCode, r.URL.Path, responseSizeBytes)
 	})
 
 	tlsConfig := &tls.Config{
@@ -118,40 +141,6 @@ func main() {
 			log.Printf("HTTP/3 server error: %v", err)
 		}
 	}()
-
-	// go func() {
-	// 	conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: 444})
-	// 	if err != nil {
-	// 		log.Fatal(err)
-	// 	}
-
-	// 	tr := quic.Transport{Conn: conn}
-	// 	ln, err := tr.ListenEarly(server.TLSConfig, server.QUICConfig)
-	// 	if err != nil {
-	// 		log.Fatal(err)
-	// 	}
-
-	// 	for {
-	// 		conn, err := ln.Accept(context.Background())
-	// 		if err != nil {
-	// 			log.Printf("Failed to accept connection: %v", err)
-	// 			continue
-	// 		}
-
-	// 		go func(c quic.Connection) {
-	// 			switch c.ConnectionState().TLS.NegotiatedProtocol {
-	// 			case http3.NextProtoH3:
-	// 				if err := server.ServeQUICConn(c); err != nil {
-	// 					log.Printf("Failed to serve HTTP/3: %v", err)
-	// 				}
-	// 			default:
-	// 				log.Printf("Unknown protocol: %s", c.ConnectionState().TLS.NegotiatedProtocol)
-	// 			}
-	// 		}(conn)
-	// 	}
-	// }()
-
-	// time.Sleep(time.Minute)
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)

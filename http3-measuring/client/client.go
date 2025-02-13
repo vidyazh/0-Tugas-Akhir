@@ -14,28 +14,28 @@ import (
 	"github.com/quic-go/quic-go/http3"
 )
 
-func recordClientMetrics(duration time.Duration, requestID int, experimentID string) {
+func recordClientMetrics(experimentID string, bytesReceived int64) {
 	go func() {
 		for {
-			requestDuration.WithLabelValues(fmt.Sprintf("%d", requestID), experimentID).Observe(duration.Seconds())
+			throughput.WithLabelValues(experimentID).Add(float64(bytesReceived))
+
 				time.Sleep(2 * time.Second)
 		}
 	}()
 }
 
 var (
-    requestDuration = prometheus.NewHistogramVec(
-        prometheus.HistogramOpts{
-            Name:    "client_request_duration_seconds",
-            Help:    "Histogram of client request durations.",
-            Buckets: prometheus.DefBuckets,
-        },
-        []string{"request_id", "experiment_id"},
-    )
+    throughput = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "client_throughput_bytes_total",
+			Help: "Total number of bytes received by the client",
+		},
+		[]string{"experiment_id"},
+	)
 )
 
 func init() {
-    prometheus.MustRegister(requestDuration)
+    prometheus.MustRegister(throughput)
 }
 
 func measureRequestResponse(client *http.Client, reqID int, latencies *[]time.Duration) {
@@ -55,9 +55,6 @@ func measureRequestResponse(client *http.Client, reqID int, latencies *[]time.Du
 	latency := time.Since(startTime)
 	*latencies = append(*latencies, latency)
 	fmt.Printf("Request %d latency: %v\n", reqID, latency)
-
-	experimentID := "experiment_1"
-	recordClientMetrics(latency, reqID, experimentID)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -85,6 +82,9 @@ func measureThroughput(client *http.Client, reqID int, totalBytes *int64, totalT
 	bytesReceived := resp.ContentLength
 	*totalBytes += bytesReceived
 	*totalTime += time.Since(startTime)
+
+	experimentID := "experiment_1"
+	recordClientMetrics(experimentID, bytesReceived)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -117,7 +117,7 @@ func main() {
 
 	client := &http.Client{Transport: tr}
 
-	numRequests := 3
+	numRequests := 60
 
 	totalBytes := int64(0)
 	totalTime := time.Duration(0)
@@ -134,18 +134,6 @@ func main() {
 	}
 
 	wg.Wait()
-
-	// // memuat requests secara concurrent
-	// for i := 0; i < numRequests; i++ {
-	// 	// ukur latensi
-	// 	go measureRequestResponse(client, i, &latencies)
-
-	// 	// ukur throughput
-	// 	go measureThroughput(client, i, &totalBytes, &totalTime)
-	// }
-
-	// // tunggu semua request selesai
-	// time.Sleep(5 * time.Second)
 
 	// menghitung rata-rata latensi
 	var totalLatency time.Duration
