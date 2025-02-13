@@ -9,97 +9,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 )
 
-func latencyMetric(experimentID string, latency time.Duration) {
-	go func() {
-		for {
-			latencyHist.WithLabelValues(experimentID).Observe(latency.Seconds())
-			time.Sleep(2 * time.Second)
-		}
-	}()
-}
-
-func throughputMetric(experimentID string, bytesReceived int64) {
-	go func() {
-		for {
-			throughput.WithLabelValues(experimentID).Add(float64(bytesReceived))
-			time.Sleep(2 * time.Second)
-		}
-	}()
-}
-
-var (
-    throughput = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "client_throughput_bytes_total",
-			Help: "Total number of bytes received by the client",
-		},
-		[]string{"experiment_id"},
-	)
-	latencyHist = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "client_average_latency_seconds",
-			Help:    "Histogram of client latency",
-			Buckets: prometheus.DefBuckets,
-		},
-		[]string{"experiment_id"},
-	)
-)
-
-func init() {
-    prometheus.MustRegister(throughput)
-	prometheus.MustRegister(latencyHist)
-}
-
+// Metrics struct untuk menyimpan hasil pengukuran
 type Metrics struct {
-	latencies    []time.Duration
-	totalBytes   int64
-	totalTime    time.Duration
-	stopChannels []chan bool
-	mu           sync.Mutex
-}
-
-func NewMetrics() *Metrics {
-	return &Metrics{
-		latencies:    make([]time.Duration, 0),
-		stopChannels: make([]chan bool, 0),
-	}
-}
-
-func (m *Metrics) Stop() {
-	for _, ch := range m.stopChannels {
-		ch <- true
-	}
-}
-
-func (m *Metrics) startMetricCollection(experimentID string, metricType string, value float64) {
-	stopCh := make(chan bool)
-	m.mu.Lock()
-	m.stopChannels = append(m.stopChannels, stopCh)
-	m.mu.Unlock()
-
-	go func() {
-		ticker := time.NewTicker(2 * time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-stopCh:
-				return
-			case <-ticker.C:
-				switch metricType {
-				case "latency":
-					latencyHist.WithLabelValues(experimentID).Observe(value)
-				case "throughput":
-					throughput.WithLabelValues(experimentID).Add(value)
-				}
-			}
-		}
-	}()
+	latencies  []time.Duration
+	totalBytes int64
+	totalTime  time.Duration
+	mu         sync.Mutex
 }
 
 func measureLatency(client *http.Client, reqID int, metrics *Metrics) error {
@@ -119,13 +38,11 @@ func measureLatency(client *http.Client, reqID int, metrics *Metrics) error {
 	}
 
 	latency := time.Since(startTime)
-	
+
+	// Simpan latency dengan thread-safe
 	metrics.mu.Lock()
 	metrics.latencies = append(metrics.latencies, latency)
 	metrics.mu.Unlock()
-
-	experimentID := "experiment_1"
-	metrics.startMetricCollection(experimentID, "latency", latency.Seconds())
 
 	fmt.Printf("Response %d (Latency: %s) | %s | %s |\n", reqID, latency, resp.Status, resp.Proto)
 	return nil
@@ -148,14 +65,12 @@ func measureThroughput(client *http.Client, reqID int, metrics *Metrics) error {
 	}
 
 	duration := time.Since(startTime)
-	
+
+	// Update metrics dengan thread-safe
 	metrics.mu.Lock()
 	metrics.totalBytes += bytesReceived
 	metrics.totalTime += duration
 	metrics.mu.Unlock()
-
-	experimentID := "experiment_1"
-	metrics.startMetricCollection(experimentID, "throughput", float64(bytesReceived))
 
 	fmt.Printf("Response %d (Throughput: %.2f bytes/sec) | %s | %s |\n", 
 		reqID, 
@@ -187,8 +102,11 @@ func main() {
 
 	client := &http.Client{Transport: tr}
 	numRequests := 3
-	metrics := NewMetrics()
-	defer metrics.Stop() // Clean up metric collection goroutines
+	
+	// Inisialisasi metrics
+	metrics := &Metrics{
+		latencies: make([]time.Duration, 0),
+	}
 
 	var wg sync.WaitGroup
 	errors := make(chan error, numRequests*2) // Buffer for both latency and throughput errors
