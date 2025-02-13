@@ -14,6 +14,15 @@ import (
 	"github.com/quic-go/quic-go/http3"
 )
 
+func recordClientMetrics(duration time.Duration, requestID int, experimentID string) {
+	go func() {
+		for {
+			requestDuration.WithLabelValues(fmt.Sprintf("%d", requestID), experimentID).Observe(duration.Seconds())
+				time.Sleep(2 * time.Second)
+		}
+	}()
+}
+
 var (
     requestDuration = prometheus.NewHistogramVec(
         prometheus.HistogramOpts{
@@ -21,16 +30,12 @@ var (
             Help:    "Histogram of client request durations.",
             Buckets: prometheus.DefBuckets,
         },
-        []string{"request_id"},
+        []string{"request_id", "experiment_id"},
     )
 )
 
 func init() {
     prometheus.MustRegister(requestDuration)
-}
-
-func recordClientMetrics(duration time.Duration, requestID int) {
-    requestDuration.WithLabelValues(fmt.Sprintf("%d", requestID)).Observe(duration.Seconds())
 }
 
 func measureRequestResponse(client *http.Client, reqID int, latencies *[]time.Duration) {
@@ -51,7 +56,8 @@ func measureRequestResponse(client *http.Client, reqID int, latencies *[]time.Du
 	*latencies = append(*latencies, latency)
 	fmt.Printf("Request %d latency: %v\n", reqID, latency)
 
-	recordClientMetrics(latency, reqID)
+	experimentID := "experiment_1"
+	recordClientMetrics(latency, reqID, experimentID)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -111,7 +117,7 @@ func main() {
 
 	client := &http.Client{Transport: tr}
 
-	numRequests := 1000
+	numRequests := 3
 
 	totalBytes := int64(0)
 	totalTime := time.Duration(0)

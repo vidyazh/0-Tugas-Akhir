@@ -20,6 +20,16 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+func recordMetrics(duration time.Duration, method string, statusCode string) {
+	go func() {
+		for {
+			requestLatency.WithLabelValues(method, statusCode).Observe(duration.Seconds())
+			time.Sleep(2 * time.Second)
+		}
+	}()
+    
+}
+
 var (
     requestLatency = prometheus.NewHistogramVec(
         prometheus.HistogramOpts{
@@ -35,9 +45,6 @@ func init() {
     prometheus.MustRegister(requestLatency)
 }
 
-func recordMetrics(duration time.Duration, method string, statusCode string) {
-    requestLatency.WithLabelValues(method, statusCode).Observe(duration.Seconds())
-}
 
 func logSystemStats() {
 	var m runtime.MemStats
@@ -77,7 +84,7 @@ func main() {
 		fmt.Fprintf(w, "Hello from HTTP/3 server!")
 
 		duration := time.Since(start)
-    	statusCode := fmt.Sprintf("%d", http.StatusOK) // Example: can be dynamic based on error handling
+    	statusCode := fmt.Sprintf("%d", http.StatusOK) 
     	recordMetrics(duration, r.Method, statusCode)
 	})
 
