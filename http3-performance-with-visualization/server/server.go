@@ -80,11 +80,12 @@ func main() {
 		}
 	}()
 
+	time.Sleep(time.Hour)
 	log.Println("Starting graceful shutdown...")
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Hour)
 	defer cancel()
-
+	
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("Shutdown error: %v", err)
 	}

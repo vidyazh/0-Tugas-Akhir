@@ -101,7 +101,7 @@ func main() {
 	tr.RoundTrip(req)
 
 	client := &http.Client{Transport: tr}
-	numRequests := 3
+	numRequests := 50
 	
 	// Inisialisasi metrics
 	metrics := &Metrics{
