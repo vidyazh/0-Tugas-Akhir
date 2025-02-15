@@ -41,12 +41,14 @@ func main() {
 
 		wasPotentiallyReplayed := !r.TLS.HandshakeComplete
 		if wasPotentiallyReplayed {
-			log.Println("Warning: Request was made using 0-RTT")
+			log.Println("Request was made using 0-RTT")
 		}
 		fmt.Fprintf(w, "Hello from HTTP/3 server!")
 
-		time.Since(start)
-    	fmt.Sprintf("%d", http.StatusOK) 
+		log.Printf("Request Headers: %v", r.Header)
+
+		ttfb := time.Since(start)
+    	log.Printf("TTFB: %v", ttfb)
 	})
 
 	tlsConfig := &tls.Config{
